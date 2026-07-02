@@ -14,6 +14,7 @@ u8 flash_type;
 u8 *itemlist;
 u16 itemlist_offset;
 u32 flash_sector_size;
+u16 flash_buffer_size;
 u32 flash_itemlist_sector_offset;
 u32 flash_status_sector_offset;
 u32 flash_save_sector_offset;
@@ -47,6 +48,7 @@ IWRAM_CODE void FlashDetectType(void)
 		REG_IE = ie;
 		flash_type = 1;
 		flash_sector_size = 0x40000;
+		flash_buffer_size = 0x400;
 		FlashCalcOffsets();
 		return;
 	}
@@ -63,11 +65,13 @@ IWRAM_CODE void FlashDetectType(void)
 		REG_IE = ie;
 		flash_type = 2;
 		flash_sector_size = 0x20000;
+		flash_buffer_size = 0x20;
 		FlashCalcOffsets();
 		return;
 	}
 
 	// 1G cart with MSP54LV100S (Zelda Classic Collection 7-in-1)
+	// 2G cart with GL04GR00FHCR2 (369-in-1)
 	_FLASH_WRITE(0, 0xF0);
 	_FLASH_WRITE(0xAAA, 0xA9);
 	_FLASH_WRITE(0x555, 0x56);
@@ -76,9 +80,20 @@ IWRAM_CODE void FlashDetectType(void)
 	_FLASH_WRITE(0, 0xF0);
 	if (data == 0x227D0002)
 	{
+		_FLASH_WRITE(0xAA, 0x98);
+		data = *(vu32 *)(AGB_ROM+0x54) & 0xFFFF;
+		if (((*(vu16 *)(AGB_ROM+0x20) & 0xFF) == 'R') &&
+			((*(vu16 *)(AGB_ROM+0x22) & 0xFF) == 'Q') &&
+			((*(vu16 *)(AGB_ROM+0x24) & 0xFF) == 'Z'))
+		{
+			data = (data & ~3U) | ((data & 1) << 1) | ((data & 2) >> 1);
+		}
+		_FLASH_WRITE(0, 0xF0);
+
 		REG_IE = ie;
 		flash_type = 3;
 		flash_sector_size = 0x20000;
+		flash_buffer_size = 1 << data;
 		FlashCalcOffsets();
 		return;
 	}
@@ -165,33 +180,35 @@ IWRAM_CODE void FlashWriteData(u32 address, u32 length)
 		FlashDetectType();
 	}
 	u8 _flash_type = flash_type;
+	u16 _flash_buffer_size = flash_buffer_size;
+	u16 _flash_buffer_count = (_flash_buffer_size >> 1) - 1;
 	vu16 *p_rom = (vu16 *)(AGB_ROM + address);
 	vu16 ie = REG_IE;
 	REG_IE = ie & 0xFFFE;
 
 	if (_flash_type == 1)
 	{
-		for (int j = 0; j < (int)(length / 0x400); j++)
+		for (int j = 0; j < (int)(length / _flash_buffer_size); j++)
 		{
-			_FLASH_WRITE(address + (j * 0x400), 0xEA);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), 0xEA);
 			while (1)
 			{
 				__asm("nop");
-				if ((p_rom[(j * 0x200)] & 0x80) == 0x80)
+				if ((p_rom[(j * (_flash_buffer_size >> 1))] & 0x80) == 0x80)
 				{
 					break;
 				}
 			}
-			_FLASH_WRITE(address + (j * 0x400), 0x1FF);
-			for (int i = 0; i < 0x400; i += 2)
+			_FLASH_WRITE(address + (j * _flash_buffer_size), _flash_buffer_count);
+			for (int i = 0; i < _flash_buffer_size; i += 2)
 			{
-				_FLASH_WRITE(address + (j * 0x400) + i, data_buffer[(j * 0x400) + i + 1] << 8 | data_buffer[(j * 0x400) + i]);
+				_FLASH_WRITE(address + (j * _flash_buffer_size) + i, data_buffer[(j * _flash_buffer_size) + i + 1] << 8 | data_buffer[(j * _flash_buffer_size) + i]);
 			}
-			_FLASH_WRITE(address + (j * 0x400), 0xD0);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), 0xD0);
 			while (1)
 			{
 				__asm("nop");
-				if ((p_rom[(j * 0x200)] & 0x80) == 0x80)
+				if ((p_rom[(j * (_flash_buffer_size >> 1))] & 0x80) == 0x80)
 				{
 					break;
 				}
@@ -201,24 +218,24 @@ IWRAM_CODE void FlashWriteData(u32 address, u32 length)
 	}
 	else if (_flash_type == 2)
 	{
-		for (int j = 0; j < (int)(length / 0x20); j++)
+		for (int j = 0; j < (int)(length / _flash_buffer_size); j++)
 		{
 			_FLASH_WRITE(0xAAA, 0xAAA9);
 			_FLASH_WRITE(0x555, 0x5556);
-			_FLASH_WRITE(address + (j * 0x20), 0x2526);
-			_FLASH_WRITE(address + (j * 0x20), 0x0F0F);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), 0x2526);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), _flash_buffer_count | (_flash_buffer_count << 8));
 			u16 data = 0;
-			for (int i = 0; i < 0x20; i += 2)
+			for (int i = 0; i < _flash_buffer_size; i += 2)
 			{
 				__asm("nop");
-				data = data_buffer[(j * 0x20) + i + 1] << 8 | data_buffer[(j * 0x20) + i];
-				_FLASH_WRITE(address + (j * 0x20) + i, data);
+				data = data_buffer[(j * _flash_buffer_size) + i + 1] << 8 | data_buffer[(j * _flash_buffer_size) + i];
+				_FLASH_WRITE(address + (j * _flash_buffer_size) + i, data);
 			}
-			_FLASH_WRITE(address + (j * 0x20), 0x292A);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), 0x292A);
 			while (1)
 			{
 				__asm("nop");
-				if (p_rom[(j * 0x10) + 0x0F] == data)
+				if (p_rom[(j * (_flash_buffer_size >> 1)) + ((_flash_buffer_size >> 1) - 1)] == data)
 				{
 					break;
 				}
@@ -228,24 +245,24 @@ IWRAM_CODE void FlashWriteData(u32 address, u32 length)
 	}
 	else if (_flash_type == 3)
 	{
-		for (int j = 0; j < (int)(length / 0x40); j++)
+		for (int j = 0; j < (int)(length / _flash_buffer_size); j++)
 		{
 			_FLASH_WRITE(0xAAA, 0xA9);
 			_FLASH_WRITE(0x555, 0x56);
-			_FLASH_WRITE(address + (j * 0x40), 0x26);
-			_FLASH_WRITE(address + (j * 0x40), 0x1F);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), 0x26);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), _flash_buffer_count);
 			u16 data = 0;
-			for (int i = 0; i < 0x40; i += 2)
+			for (int i = 0; i < _flash_buffer_size; i += 2)
 			{
 				__asm("nop");
-				data = data_buffer[(j * 0x40) + i + 1] << 8 | data_buffer[(j * 0x40) + i];
-				_FLASH_WRITE(address + (j * 0x40) + i, data);
+				data = data_buffer[(j * _flash_buffer_size) + i + 1] << 8 | data_buffer[(j * _flash_buffer_size) + i];
+				_FLASH_WRITE(address + (j * _flash_buffer_size) + i, data);
 			}
-			_FLASH_WRITE(address + (j * 0x40), 0x2A);
+			_FLASH_WRITE(address + (j * _flash_buffer_size), 0x2A);
 			while (1)
 			{
 				__asm("nop");
-				if (p_rom[(j * 0x20) + 0x1F] == data)
+				if (p_rom[(j * (_flash_buffer_size >> 1)) + ((_flash_buffer_size >> 1) - 1)] == data)
 				{
 					break;
 				}
@@ -337,9 +354,19 @@ IWRAM_CODE u8 BootGame(ItemConfig config, FlashStatus status)
 	REG_IE = 0;
 
 	// Set mapper configuration
-	*(vu8 *)MAPPER_CONFIG1 = ((config.rom_offset / 0x40) & 0xF) << 4; // flash bank (0~7)
-	*(vu8 *)MAPPER_CONFIG2 = 0x40 + (config.rom_offset % 0x40);		  // ROM offset (in 512 KB blocks) within current flash bank
-	*(vu8 *)MAPPER_CONFIG3 = 0x40 - config.rom_size;				  // accessible ROM size (in 512 KB blocks)
+	u8 mapper_config1 = ((config.rom_offset / 0x40) & 0xF) << 4;	// flash bank (0~7)
+	u8 mapper_config2 = 0x40 + (config.rom_offset % 0x40);			// ROM offset (in 512 KB blocks) within current flash bank
+	u8 mapper_config3 = 0x40 - config.rom_size;						// accessible ROM size (in 512 KB blocks)
+	u8 mapper_lock = mapper_config2 | 0x80;
+
+	*(vu8 *)MAPPER_CONFIG1 = mapper_config1;
+	__asm volatile("nop");
+	*(vu8 *)MAPPER_CONFIG2 = mapper_config2;
+	__asm volatile("nop");
+	*(vu8 *)MAPPER_CONFIG3 = mapper_config3;
+	__asm volatile("nop");
+	*(vu8 *)MAPPER_CONFIG2 = mapper_lock;
+	__asm volatile("nop");
 
 	// Wait until menu ROM is no longer visible
 	u32 timeout = 0x2FFF;

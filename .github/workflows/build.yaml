@@ -1,0 +1,179 @@
+name: Build release ZIP
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for ZIP filename, e.g. v1.2.3'
+        required: false
+        default: manual
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build-gba:
+    name: Build GBA ROM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build lk_multimenu.gba with devkitPro
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            devkitpro/devkitarm:latest \
+            bash -lc 'make clean && make'
+
+      - name: Verify GBA output
+        run: test -f rom_builder/lk_multimenu.gba
+
+      - name: Upload GBA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gba-rom
+          path: rom_builder/lk_multimenu.gba
+          if-no-files-found: error
+
+  build-rom-builder:
+    name: Build rom_builder.exe
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build rom_builder.exe
+        run: pyinstaller --noconfirm --clean --onefile --console --name rom_builder rom_builder/rom_builder.py
+
+      - name: Verify EXE output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/rom_builder.exe")) {
+            throw "dist/rom_builder.exe was not created"
+          }
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-builder-exe
+          path: dist/rom_builder.exe
+          if-no-files-found: error
+
+  package:
+    name: Package ZIP
+    runs-on: windows-latest
+    needs:
+      - build-gba
+      - build-rom-builder
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download GBA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gba-rom
+          path: artifacts/gba
+
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rom-builder-exe
+          path: artifacts/exe
+
+      - name: Determine ZIP name
+        id: package_name
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ($env:EVENT_NAME -eq "release") {
+            $version = $env:RELEASE_VERSION
+          } else {
+            $version = $env:MANUAL_VERSION
+            if ([string]::IsNullOrWhiteSpace($version)) {
+              $version = $env:REF_NAME
+            }
+          }
+
+          $safeVersion = $version -replace '[^A-Za-z0-9._-]', '_'
+          $zipName = "lk_multimenu_rom_builder_$safeVersion.zip"
+          $zipPath = "release/$zipName"
+
+          "version=$safeVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip_name=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          Write-Host "ZIP file: $zipName"
+
+      - name: Create release ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $packageDir = "package"
+          $releaseDir = "release"
+          $zipPath = "${{ steps.package_name.outputs.zip_path }}"
+
+          Remove-Item $packageDir, $releaseDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $packageDir, "$packageDir/roms", $releaseDir | Out-Null
+
+          Copy-Item "rom_builder/bg.png" "$packageDir/bg.png" -Force
+          Copy-Item "rom_builder/rom_builder.py" "$packageDir/rom_builder.py" -Force
+          Copy-Item "artifacts/gba/lk_multimenu.gba" "$packageDir/lk_multimenu.gba" -Force
+          Copy-Item "artifacts/exe/rom_builder.exe" "$packageDir/rom_builder.exe" -Force
+
+          if (Test-Path "rom_builder/roms") {
+            Copy-Item "rom_builder/roms/*" "$packageDir/roms/" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          if (-not (Get-ChildItem "$packageDir/roms" -Force -ErrorAction SilentlyContinue)) {
+            New-Item -ItemType File -Path "$packageDir/roms/- ROM files go here -" -Force | Out-Null
+          }
+
+          Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath -Force
+
+          Write-Host "ZIP contents:"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::OpenRead($zipPath).Entries.FullName | Sort-Object | ForEach-Object { Write-Host $_ }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package_name.outputs.zip_name }}
+          path: ${{ steps.package_name.outputs.zip_path }}
+          if-no-files-found: error
+
+      - name: Attach ZIP to GitHub Release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload '${{ github.event.release.tag_name }}' '${{ steps.package_name.outputs.zip_path }}' --clobber

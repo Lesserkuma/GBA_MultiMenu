@@ -29,6 +29,7 @@ extern u8 *itemlist;
 extern u8 flash_type;
 extern u16 itemlist_offset;
 extern u32 flash_sector_size;
+extern u16 flash_buffer_size;
 extern u32 flash_itemlist_sector_offset;
 extern u32 flash_status_sector_offset;
 extern u32 flash_save_sector_offset;
@@ -198,7 +199,7 @@ int main(void) {
 			// Draw status bar
 			LoadFont(2);
 			memset(temp_unicode, 0, sizeof(temp_unicode));
-			snprintf(temp_ascii, 10+1, "%d/%d", page_active*8+cursor_pos+1, roms_total);
+			snprintf(temp_ascii, 10+1, "%d/%d", page_active+1, page_total);
 			AsciiToUnicode(temp_ascii, temp_unicode);
 			DrawText(11, SCREEN_HEIGHT - sFontSpecs.max_height - 3 - FontMarginBottom, ALIGN_RIGHT, temp_unicode, 10, font, (void*)AGB_VRAM+0xA000, FALSE);
 			if (boot_failed) {
@@ -221,7 +222,7 @@ int main(void) {
 				u8 a = ((sItemConfig.rom_offset / 0x40) & 0xF) << 4;
 				u8 b = 0x40 + (sItemConfig.rom_offset % 0x40);
 				u8 c = 0x40 - sItemConfig.rom_size;
-				snprintf(temp_ascii, 64, "%02X:%02X:%02X|0x%X~%dMiB|%X", a, b, c, (int)(sItemConfig.rom_offset * 512 * 1024), (int)(sItemConfig.rom_size * 512 >> 10), (int)(flash_save_sector_offset + sItemConfig.save_index));
+				snprintf(temp_ascii, 64, "%02X:%02X:%02X|0x%X~%dMiB|%X - %X", a, b, c, (unsigned int)(sItemConfig.rom_offset * 512 * 1024), (int)(sItemConfig.rom_size * 512 >> 10), (unsigned int)(flash_save_sector_offset + sItemConfig.save_index), (unsigned int)flash_buffer_size);
 				memset(temp_unicode, 0, sizeof(temp_unicode));
 				AsciiToUnicode(temp_ascii, temp_unicode);
 				DrawText(6, SCREEN_HEIGHT - sFontSpecs.max_height - 3 - FontMarginBottom, ALIGN_LEFT, temp_unicode, 64, font, (void*)AGB_VRAM+0xA000, FALSE);

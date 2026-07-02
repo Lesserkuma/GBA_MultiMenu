@@ -5,7 +5,7 @@
 import sys, os, glob, json, math, re, struct, hashlib, argparse, datetime
 
 # Configuration
-app_version = "1.1"
+app_version = "1.2"
 default_file = "LK_MULTIMENU_<CODE>.gba"
 
 ################################
@@ -60,6 +60,12 @@ cartridge_types = [
 		"name":"F0095H0",
 		"flash_size":0x20000000,
 		"sector_size":0x40000,
+		"block_size":0x80000,
+	},
+	{
+		"name":"GL04GR00FHCR2",
+		"flash_size":0x10000000,
+		"sector_size":0x20000,
 		"block_size":0x80000,
 	},
 ]
@@ -414,6 +420,9 @@ logp("")
 logp("Cartridge Type:  {:d} ({:s}) {:s}".format(cartridge_type + 1, cartridge_types[cartridge_type]["name"], "with battery" if battery_present else "without battery"))
 logp("Output ROM Size: {:.2f} MiB".format(rom_size / 1024 / 1024))
 logp("Output ROM Code: {:s}".format(rom_code))
+if cartridge_type + 1 == 5:
+	logp("")
+	logp("Note: The GL04GR00FHCR2 flash chip may be too slow to work with most commercial games. Games may need to be patched for slower access timing via the Waitstate Control register.")
 output_file = output_file.replace("<CODE>", rom_code)
 
 if args.split:

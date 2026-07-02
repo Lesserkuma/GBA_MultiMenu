@@ -19,11 +19,12 @@ The following section must be edited in order to specify the cartridge type to u
 	"min_rom_size": 4194304
 },
 ```
-Set `type` to `1` or `2`:
+Set `type` to one of these:
 - `1` = MSP55LV100S (e.g. The Legend of Zelda Collection - Classic Edition 7-in-1, 64 MiB)
 - `2` = 6600M0U0BE (e.g. 369IN1 2048M, 256 MiB)
 - `3` = MSP54LV100 (e.g. The Legend of Zelda Collection - Classic Edition 7-in-1, 128 MiB)
 - `4` = F0095H0 (e.g. 53 in one 4G, 512 MiB)
+- `5` = GL04GR00FHCR2 (e.g. 369IN1 2048M, 256 MiB, 2026)
 
 Set `battery_present` to `true` or `false`. This will enable enhanced save data handling which will only be functional with a working battery.
 
@@ -74,9 +75,7 @@ No command line arguments are required for creating a compilation, however there
 - up to 64 KiB of save data per ROM
 
 ### Save Data
-If the cartridge has a battery installed, the ROMs must be SRAM-patched with [GBATA](https://www.romhacking.net/utilities/601/) for saving to work.
-
-If the cartridge has no battery installed, the ROMs must be patched for batteryless SRAM saving with maniac's [Automatic batteryless saving patcher](https://github.com/metroid-maniac/gba-auto-batteryless-patcher/).
+If the cartridge has a battery installed, the ROMs must be SRAM-patched for saving to work. If the cartridge has no battery installed, the ROMs must be patched for the Batteryless SRAM method. If your cartridge has the GL04GR00FHCR2 flash chip or similar, the ROMs must be patched for slower cartridge access timing (waitstate). The [GBA Save Type Patcher](https://lesserkuma.github.io/GBA_Save_Type_Patcher/) offers these options.
 
 On battery-equipped cartridges, when starting a game from the menu, the previously played game's save data will be read from SRAM and stored to permanent flash memory. To skip this, you can hold the SELECT button while starting the game.
 
@@ -86,8 +85,9 @@ Tested repro cartridges:
 - 100BS6600_48BALL_V4 with 6600M0U0BE
 - SUN100S_MSP54_XXX_BGA48 with MSP54LV100
 - F0095_4G_V1 with F0095H0
+- ACAM_GL04G10_2G_204 with GL04GR00FHCR2
 
-The generated compilation ROM can be written and read using a [GBxCart RW v1.4+](https://www.gbxcart.com/) device by insideGadgets and the [FlashGBX](https://github.com/lesserkuma/FlashGBX) software.
+The generated compilation ROM can be written and read using a compatible cart flasher device and the [FlashGBX](https://github.com/lesserkuma/FlashGBX) software.
 
 ## Thanks
 Thanks to FraX, Ausar, liuyunx, BennVenn, Jenetrix, Matt
